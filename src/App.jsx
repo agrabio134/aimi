@@ -644,12 +644,10 @@ const TreeMapView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile, on
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'scale(1.05)';
                 e.currentTarget.style.boxShadow = `0 0 20px rgba(${r},${g},${b},0.6)`;
-                e.currentTarget.style.zIndex = '10';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.transform = 'scale(1)';
                 e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.zIndex = '1';
               }}
             >
               <div className="cell-content" style={{ fontSize: `${fontSize}px`, textAlign: 'center', width: '100%' }}>
@@ -926,21 +924,23 @@ const TweetModal = ({ tweet, onClose }) => {
         const mediaMatch = expanded.match(/\/media\/([^?]+)/);
         if (mediaMatch) {
           const mediaId = mediaMatch[1];
-          imageUrl = `https://pbs.twimg.com/media/${mediaId}?format=jpg&name=large`;
+          imageUrl = `https://pbs.twimg.com/media/${mediaId}?format=png&name=large`;
         }
       }
     });
   }
 
+  
+
   if (tweet.attachments?.media_keys && !imageUrl) {
     const mediaKey = tweet.attachments.media_keys[0];
-    imageUrl = `https://pbs.twimg.com/media/${mediaKey}?format=jpg&name=large`;
+    imageUrl = `https://pbs.twimg.com/media/${mediaKey}?format=png&name=large`;
   }
 
   if (tweet.includes?.media) {
     tweet.includes.media.forEach(media => {
       if (media.type === 'photo' && !imageUrl) {
-        imageUrl = media.url || media.media_key ? `https://pbs.twimg.com/media/${media.media_key}?format=jpg&name=large` : null;
+        imageUrl = media.url || media.media_key ? `https://pbs.twimg.com/media/${media.media_key}?format=png&name=large` : null;
       } else if (media.type === 'video' && !videoUrl) {
         videoUrl = media.variants?.[0]?.url || null;
       }
@@ -963,8 +963,8 @@ const TweetModal = ({ tweet, onClose }) => {
             </div>
           </div>
           <p className="tweet-text">{tweet.text}</p>
-          {imageUrl && <img src={imageUrl} alt="Tweet media" className="tweet-image" />}
-          {videoUrl && <video src={videoUrl} controls className="tweet-video" style={{ maxWidth: '100%', borderRadius: '12px' }} />}
+          {/* {imageUrl && <img src={imageUrl} alt="Tweet media" className="tweet-image" />}
+          {videoUrl && <video src={videoUrl} controls className="tweet-video" style={{ maxWidth: '100%', borderRadius: '12px' }} />} */}
         </div>
       </div>
     </div>
@@ -1583,6 +1583,7 @@ export default function App() {
           border-color: #9945FF;
           outline: none;
         }
+          
 
         .leaderboard-list {
           display: flex;
@@ -1827,7 +1828,6 @@ export default function App() {
 
         .treemap-cell:hover, .treemap-cell:active {
           transform: scale(1.05);
-          z-index: 10;
         }
 
         .treemap-cell.golden {
