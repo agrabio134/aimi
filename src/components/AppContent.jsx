@@ -5,6 +5,7 @@ import Dashboard from './Dashboard';
 //fontawesome icon twitter 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faXTwitter } from '@fortawesome/free-brands-svg-icons';
+import Swal from 'sweetalert2';
 
 
 
@@ -18,11 +19,23 @@ const AppContent = () => {
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+  const copyCa = () => {
+    return () => {
+      navigator.clipboard.writeText('SOON');
+      Swal.fire({
+        title: 'Contract Address Copied!',
+        text: 'The contract address has been copied to your clipboard.',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    };
+  }
 
   return (
     <div className="app">
       <header>
-        <div className="ca-header">CA: SOON</div>
+        <div className="ca-header" onClick={copyCa()}>CA: SOON</div>
 
         <div className="nav-section">
           <div className="logo">

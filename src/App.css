@@ -35,6 +35,11 @@ header {
   width: fit-content;
 }
 
+.ca-header:hover {
+  cursor: pointer;
+  background: linear-gradient(135deg, #14F195, #9945FF);
+}
+
 .nav-section {
   display: flex;
   justify-content: space-between;
