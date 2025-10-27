@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ConnectionProvider, WalletProvider, useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletModalProvider, WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
@@ -180,6 +180,40 @@ const fetchTokens = async () => {
   }
 };
 
+// Real-time search via DexScreener API
+const searchTokens = async (query) => {
+  try {
+    if (!query || query.length < 2) return [];
+    const res = await fetch(`https://api.dexscreener.com/latest/dex/search/?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const solanaPairs = data.pairs?.filter(p => p.chainId === 'solana') || [];
+    return solanaPairs.slice(0, 20).map(pair => ({
+      id: pair.baseToken.address,
+      symbol: pair.baseToken.symbol,
+      name: pair.baseToken.name || pair.symbol,
+      price: parseFloat(pair.priceUsd) || 0,
+      priceChange: pair.priceChange?.h24 || 0,
+      volume24h: pair.volume?.h24 || 0,
+      liquidity: pair.liquidity?.usd || 0,
+      marketCap: pair.fdv || 0,
+      txns24h: (pair.txns?.h24?.buys || 0) + (pair.txns?.h24?.sells || 0),
+      logo: pair.info?.imageUrl || null,
+      description: '',
+      website: '',
+      twitter: '',
+      telegram: '',
+      boostAmount: 0,
+      memeScore: 50, // Default for search results
+      votes: 0,
+      boost: null,
+    }));
+  } catch (err) {
+    console.error('Search error:', err);
+    return [];
+  }
+};
+
 // Fetch tweets from BullX API
 const fetchTweets = async () => {
   try {
@@ -244,164 +278,542 @@ const calculateScore = (tokens, votes = {}, boosts = {}) => {
   }).sort((a, b) => b.memeScore - a.memeScore);
 };
 
-// Bubble View with draggable bubbles
-const BubbleView = ({ tokens, onVote, onBoost, canVote, userVotes }) => {
+// Bubble View (enhanced for mobile with positioned bubbles, closer spacing, draggable)
+const BubbleView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile, onItemClick }) => {
+  const bubbleRef = useRef(null);
+  const dragRef = useRef(null);
   const [positions, setPositions] = useState([]);
 
-  useEffect(() => {
-    const generateNonOverlappingPositions = () => {
-      const positions = [];
-      const minDistance = 15; // Minimum percentage distance between centers
-      const attempts = 100; // Max attempts per bubble to find position
+  const numBubbles = isMobile ? Math.min(30, tokens.length) : Math.min(20, tokens.length);
+  const minDistance = isMobile ? 60 : 100;
 
-      for (let i = 0; i < Math.min(20, tokens.length); i++) {
-        let newPos;
-        let attempt = 0;
+  useEffect(() => {
+    const container = bubbleRef.current;
+    if (!container) return;
+
+    const width = container.offsetWidth;
+    const height = container.offsetHeight;
+    const attempts = 200;
+
+    const generatePositions = () => {
+      let posList = [];
+      for (let i = 0; i < numBubbles; i++) {
+        let newPos, attempt = 0;
         do {
+          // Add some organic offset for mobile
+          const organicX = isMobile ? (Math.random() * 15 - 7.5) : 0;
+          const organicY = isMobile ? (Math.random() * 15 - 7.5) : 0;
           newPos = {
-            x: Math.random() * 80 + 10,
-            y: Math.random() * 80 + 10,
-            rotation: Math.random() * 360
+            x: Math.random() * (width - 100) + 50 + organicX,
+            y: Math.random() * (height - 100) + 50 + organicY,
+            rotation: isMobile ? 0 : Math.random() * 360
           };
           attempt++;
-          const overlap = positions.some(pos => {
-            const dx = newPos.x - pos.x;
-            const dy = newPos.y - pos.y;
-            return Math.sqrt(dx*dx + dy*dy) < minDistance;
+          const overlaps = posList.some(existing => {
+            const dx = newPos.x - existing.x;
+            const dy = newPos.y - existing.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            return dist < minDistance;
           });
-          if (!overlap) break;
+          if (!overlaps) break;
         } while (attempt < attempts);
-        positions.push(newPos);
+
+        if (attempt >= attempts) {
+          const gridX = (i % Math.ceil(Math.sqrt(numBubbles))) * (width / Math.ceil(Math.sqrt(numBubbles)));
+          const gridY = Math.floor(i / Math.ceil(Math.sqrt(numBubbles))) * (height / Math.ceil(Math.sqrt(numBubbles)));
+          newPos = { x: gridX + width / (2 * Math.ceil(Math.sqrt(numBubbles))), y: gridY + height / (2 * Math.ceil(Math.sqrt(numBubbles))), rotation: 0 };
+        }
+
+        posList.push(newPos);
       }
-      return positions;
+      return posList;
     };
 
-    setPositions(generateNonOverlappingPositions());
-  }, [tokens]);
+    setPositions(generatePositions());
+  }, [tokens, isMobile, numBubbles, minDistance]);
+
+  const handleMouseDown = useCallback((index, e) => {
+    e.stopPropagation();
+    dragRef.current = { 
+      index, 
+      startX: e.clientX, 
+      startY: e.clientY, 
+      startPos: { ...positions[index] } 
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [positions]);
+
+  const handleMouseMove = useCallback((e) => {
+    if (!dragRef.current) return;
+    const { index, startX, startY, startPos } = dragRef.current;
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+    setPositions(prev => {
+      const newPos = [...prev];
+      newPos[index] = { ...startPos, x: startPos.x + deltaX, y: startPos.y + deltaY };
+      return newPos;
+    });
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    dragRef.current = null;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }, [handleMouseMove]);
+
+  const handleTouchStart = useCallback((index, e) => {
+    e.stopPropagation();
+    const touch = e.touches[0];
+    dragRef.current = { 
+      index, 
+      startX: touch.clientX, 
+      startY: touch.clientY, 
+      startPos: { ...positions[index] } 
+    };
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
+  }, [positions]);
+
+  const handleTouchMove = useCallback((e) => {
+    if (!dragRef.current) return;
+    const touch = e.touches[0];
+    const { index, startX, startY, startPos } = dragRef.current;
+    const deltaX = touch.clientX - startX;
+    const deltaY = touch.clientY - startY;
+    e.preventDefault();
+    setPositions(prev => {
+      const newPos = [...prev];
+      newPos[index] = { ...startPos, x: startPos.x + deltaX, y: startPos.y + deltaY };
+      return newPos;
+    });
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    dragRef.current = null;
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleTouchEnd);
+  }, [handleTouchMove]);
 
   return (
-    <div className="bubble-view">
-      {tokens.slice(0, 20).map((token, idx) => {
-        const maxScore = Math.max(...tokens.map(t => t.memeScore));
-        const minScore = Math.min(...tokens.map(t => t.memeScore));
-        const size = 60 + ((token.memeScore - minScore) / (maxScore - minScore)) * 160;
-        const hue = token.priceChange >= 0 ? 120 : 0;
-        const sat = Math.min(100, Math.abs(token.priceChange) * 2);
-        const pos = positions[idx] || { x: 50, y: 50, rotation: 0 };
-        
-        return (
-          <div
-            key={token.id}
-            className={`bubble ${token.boost?.golden ? 'golden' : ''}`}
-            style={{
-              width: `${size}px`,
-              height: `${size}px`,
-              left: `${pos.x}%`,
-              top: `${pos.y}%`,
-              transform: `translate(-50%, -50%) rotate(${pos.rotation}deg)`,
-              background: token.boost?.golden 
-                ? 'linear-gradient(135deg, #FFD700, #FFA500)'
-                : `linear-gradient(135deg, hsl(${hue}, ${sat}%, 50%), hsl(${hue}, ${sat}%, 40%))`
-            }}
-          >
-            {token.logo && <img src={token.logo} alt={token.symbol} className="bubble-logo" />}
-            <div className="bubble-symbol">{token.symbol}</div>
-            <div className="bubble-price">${token.price.toLocaleString(undefined, {maximumSignificantDigits: 4})}</div>
-            <div className="bubble-change" style={{color: token.priceChange >= 0 ? '#00ff00' : '#ff0000'}}>
-              {token.priceChange >= 0 ? '+' : ''}{token.priceChange.toFixed(2)}%
+    <div>
+      <h2 style={{ fontSize: '24px', marginBottom: '20px', background: 'linear-gradient(135deg, #9945FF, #14F195, #FFD700)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        🫧 Meme Bubble Chart
+      </h2>
+      <div className="bubble-view" ref={bubbleRef} style={{ minHeight: isMobile ? '70vh' : '80vh' }}>
+        {tokens.slice(0, numBubbles).map((token, idx) => {
+          const maxScore = Math.max(...tokens.map(t => t.memeScore));
+          const minScore = Math.min(...tokens.map(t => t.memeScore));
+          const size = isMobile ? (80 + ((token.memeScore - minScore) / (maxScore - minScore || 1)) * 60) : (60 + ((token.memeScore - minScore) / (maxScore - minScore)) * 160);
+          const hue = token.priceChange >= 0 ? 120 : 0;
+          const sat = Math.min(100, Math.abs(token.priceChange) * 2);
+          const pos = positions[idx] || { x: 50, y: 50, rotation: 0 };
+          
+          return (
+            <div
+              key={token.id}
+              className={`bubble ${token.boost?.golden ? 'golden' : ''}`}
+              style={{
+                width: `${size}px`,
+                height: `${size}px`,
+                left: `${pos.x}px`,
+                top: `${pos.y}px`,
+                transform: `translate(-50%, -50%) rotate(${pos.rotation}deg)`,
+                background: token.boost?.golden 
+                  ? 'linear-gradient(135deg, #FFD700, #FFA500)'
+                  : `linear-gradient(135deg, hsl(${hue}, ${sat}%, 50%), hsl(${hue}, ${sat}%, 40%))`
+              }}
+              onClick={(e) => { e.stopPropagation(); onItemClick(token); }}
+              onMouseDown={(e) => handleMouseDown(idx, e)}
+              onTouchStart={(e) => handleTouchStart(idx, e)}
+            >
+              <div className="bubble-symbol">{token.symbol}</div>
+              <div className="bubble-price">${token.price.toLocaleString(undefined, {maximumSignificantDigits: 4})}</div>
+              <div className="bubble-change" style={{color: token.priceChange >= 0 ? '#00ff00' : '#ff0000'}}>
+                {token.priceChange >= 0 ? '+' : ''}{token.priceChange.toFixed(2)}%
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 };
 
-// TreeMap View
-const TreeMapView = ({ tokens, onVote, onBoost, canVote, userVotes }) => {
-  const topTokens = tokens.slice(0, 100); // More for treemap
-  const totalMarketCap = topTokens.reduce((sum, t) => sum + t.marketCap, 0);
-  
+// Enhanced TreeMap View (fixed to fill space completely by scaling, restored numTokens)
+const TreeMapView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile, onItemClick }) => {
+  const treemapRef = useRef(null);
+  const [layout, setLayout] = useState([]);
+
+  const squarify = (data, x, y, width, height) => {
+    const nodes = [];
+
+    const getWorstRatio = (row, rw, rh, isHorizontal, sumRemaining) => {
+      if (row.length === 0) return 0;
+      const rowSum = row.reduce((sum, d) => sum + d.value, 0);
+      if (rowSum === 0) return Infinity;
+      let stripDim, fullDim;
+      if (isHorizontal) {
+        stripDim = (rowSum / sumRemaining) * rh; // height of strip
+        fullDim = rw; // width full
+      } else {
+        stripDim = (rowSum / sumRemaining) * rw; // width of strip
+        fullDim = rh; // height full
+      }
+      let maxRatio = 0;
+      row.forEach(d => {
+        let rectWidth, rectHeight;
+        if (isHorizontal) {
+          rectWidth = (d.value / rowSum) * fullDim;
+          rectHeight = stripDim;
+        } else {
+          rectWidth = stripDim;
+          rectHeight = (d.value / rowSum) * fullDim;
+        }
+        const longer = Math.max(rectWidth, rectHeight);
+        const shorter = Math.min(rectWidth, rectHeight);
+        const ratio = shorter > 0 ? longer / shorter : Infinity;
+        maxRatio = Math.max(maxRatio, ratio);
+      });
+      return maxRatio;
+    };
+
+    const layoutHorizontalRow = (row, rx, ry, rw, rowHeight) => {
+      const rowSum = row.reduce((sum, d) => sum + d.value, 0);
+      let currX = rx;
+      row.forEach(d => {
+        const rectWidth = (d.value / rowSum) * rw;
+        nodes.push({ data: d, x: currX, y: ry, w: rectWidth, h: rowHeight });
+        currX += rectWidth;
+      });
+    };
+
+    const layoutVerticalRow = (row, rx, ry, rowWidth, rh) => {
+      const rowSum = row.reduce((sum, d) => sum + d.value, 0);
+      let currY = ry;
+      row.forEach(d => {
+        const rectHeight = (d.value / rowSum) * rh;
+        nodes.push({ data: d, x: rx, y: currY, w: rowWidth, h: rectHeight });
+        currY += rectHeight;
+      });
+    };
+
+    if (data.length === 0) return nodes;
+
+    // Sort data in descending order
+    data = [...data].sort((a, b) => b.value - a.value);
+
+    const initialIsHorizontal = width >= height;
+
+    const recurse = (remaining, rx, ry, rw, rh, isHorizontal) => {
+      if (remaining.length === 0) return;
+
+      const sumRemaining = remaining.reduce((sum, d) => sum + d.value, 0);
+      if (sumRemaining === 0) return;
+
+      let row = [remaining[0]];
+      for (let i = 1; i < remaining.length; i++) {
+        const candidateRow = [...row, remaining[i]];
+        const currentWorst = getWorstRatio(row, rw, rh, isHorizontal, sumRemaining);
+        const candidateWorst = getWorstRatio(candidateRow, rw, rh, isHorizontal, sumRemaining);
+        if (candidateWorst <= currentWorst) {
+          row = candidateRow;
+        } else {
+          // Layout current row
+          const rowSum = row.reduce((sum, d) => sum + d.value, 0);
+          if (isHorizontal) {
+            const rowHeight = (rowSum / sumRemaining) * rh;
+            layoutHorizontalRow(row, rx, ry, rw, rowHeight);
+            const newRy = ry + rowHeight;
+            const newRh = rh - rowHeight;
+            recurse(remaining.slice(i), rx, newRy, rw, newRh, !isHorizontal);
+          } else {
+            const rowWidth = (rowSum / sumRemaining) * rw;
+            layoutVerticalRow(row, rx, ry, rowWidth, rh);
+            const newRx = rx + rowWidth;
+            const newRw = rw - rowWidth;
+            recurse(remaining.slice(i), newRx, ry, newRw, rh, !isHorizontal);
+          }
+          return;
+        }
+      }
+
+      // Layout the last row (full remaining space)
+      const rowSum = row.reduce((sum, d) => sum + d.value, 0);
+      if (isHorizontal) {
+        const rowHeight = rh; // Full remaining height
+        layoutHorizontalRow(row, rx, ry, rw, rowHeight);
+      } else {
+        const rowWidth = rw; // Full remaining width
+        layoutVerticalRow(row, rx, ry, rowWidth, rh);
+      }
+      // No recurse needed, remaining is empty
+    };
+
+    recurse(data, x, y, width, height, initialIsHorizontal);
+    return nodes;
+  };
+
+  useEffect(() => {
+    const container = treemapRef.current;
+    if (!container || tokens.length === 0) return;
+
+    const width = container.offsetWidth;
+    const height = container.offsetHeight || (isMobile ? window.innerHeight * 0.8 : window.innerHeight * 0.6);
+    const numTokens = isMobile ? 9 : 16;
+    const topTokens = tokens.slice(0, numTokens)
+      .filter(t => t.marketCap > 0)
+      .sort((a, b) => b.marketCap - a.marketCap)
+      .map(t => ({ ...t, value: Math.log(t.marketCap + 1) }));
+    let nodes = squarify(topTokens, 0, 0, width, height);
+
+    // Scale to fill exactly to avoid gaps due to floating point
+    let maxX = 0, maxY = 0;
+    nodes.forEach(node => {
+      maxX = Math.max(maxX, node.x + node.w);
+      maxY = Math.max(maxY, node.y + node.h);
+    });
+    const scaleX = width / (maxX || 1);
+    const scaleY = height / (maxY || 1);
+    const scaledNodes = nodes.map(node => ({
+      ...node,
+      x: node.x * scaleX,
+      y: node.y * scaleY,
+      w: node.w * scaleX,
+      h: node.h * scaleY
+    })).filter(node => node.w > 0.5 && node.h > 0.5); // Filter tiny ones
+
+    setLayout(scaledNodes);
+  }, [tokens, isMobile]);
+
   return (
-    <div className="treemap">
-      {topTokens.map((token, idx) => {
-        const basis = Math.max(5, (token.marketCap / totalMarketCap) * 100);
-        const color = token.priceChange >= 0 ? `hsl(120, ${Math.min(100, token.priceChange * 2)}%, 70%)` : `hsl(0, ${Math.min(100, Math.abs(token.priceChange) * 2)}%, 70%)`;
-        
-        return (
-          <div
-            key={token.id}
-            className={`treemap-cell ${token.boost?.golden ? 'golden' : ''}`}
-            style={{
-              flexBasis: `${basis}%`,
-              flexGrow: basis,
-              minHeight: '100px',
-              background: token.boost?.golden
-                ? 'linear-gradient(135deg, #FFD700, #FFA500)'
-                : color
-            }}
-          >
-            <div className="cell-content">
-              {token.logo && <img src={token.logo} alt={token.symbol} />}
-              <h3>{token.name}</h3>
-              <div className="cell-price">${token.price.toLocaleString()}</div>
-              <div className="cell-change" style={{color: '#ffffffff' }}>
-                {token.priceChange >= 0 ? '+' : ''}{token.priceChange.toFixed(2)}%
+    <div>
+      <h2 style={{ fontSize: '24px', marginBottom: '20px', background: 'linear-gradient(135deg, #9945FF, #14F195, #FFD700)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        📊 Market Cap Treemap
+      </h2>
+      <div 
+        className="treemap" 
+        ref={treemapRef} 
+        style={{ 
+          height: isMobile ? '80vh' : '70vh', 
+          overflow: 'hidden',
+          padding: 0
+        }}
+      >
+        {layout.map((node, idx) => {
+          const { data: token } = node;
+          const rectWidth = node.w;
+          const rectHeight = node.h;
+          if (rectWidth < 1 || rectHeight < 1) return null;
+          const change = token.priceChange;
+          const isPositive = change >= 0;
+          const intensity = Math.min(70, Math.abs(change) * 2);
+          const r = isPositive ? 0 : 255;
+          const g = isPositive ? 255 : 77;
+          const b = isPositive ? 136 : 77;
+          const alpha1 = 0.2 + (intensity / 100) * 0.3;
+          const alpha2 = 0.5 + (intensity / 100) * 0.3;
+          const gradient = `linear-gradient(135deg, rgba(${r},${g},${b},${alpha1}), rgba(${r},${g},${b},${alpha2}))`;
+          const fontSize = Math.max(isMobile ? 6 : 8, Math.min(rectWidth, rectHeight) / 12);
+          const showSymbol = rectWidth > (isMobile ? 40 : 60) || rectHeight > (isMobile ? 40 : 60);
+          
+          return (
+            <div
+              key={idx}
+              className={`treemap-cell ${token.boost?.golden ? 'golden' : ''}`}
+              style={{
+                position: 'absolute',
+                left: `${node.x}px`,
+                top: `${node.y}px`,
+                width: `${rectWidth}px`,
+                height: `${rectHeight}px`,
+                background: token.boost?.golden
+                  ? 'linear-gradient(135deg, rgba(255,215,0,0.6), rgba(255,165,0,0.6))'
+                  : gradient,
+                borderRadius: '4px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: `${Math.max(1, fontSize / 5)}px`,
+              }}
+              onClick={() => onItemClick(token)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'scale(1.05)';
+                e.currentTarget.style.boxShadow = `0 0 20px rgba(${r},${g},${b},0.6)`;
+                e.currentTarget.style.zIndex = '10';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.zIndex = '1';
+              }}
+            >
+              <div className="cell-content" style={{ fontSize: `${fontSize}px`, textAlign: 'center', width: '100%' }}>
+                {showSymbol && (
+                  <h3 style={{ 
+                    margin: '0 0 2px 0', 
+                    whiteSpace: 'nowrap', 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    fontWeight: 'bold', 
+                    color: 'white',
+                    fontSize: `${fontSize * 1.1}px`
+                  }}>
+                    {token.symbol}
+                  </h3>
+                )}
+                <div className="cell-change" style={{ 
+                  fontSize: `${fontSize}px`, 
+                  color: change >= 0 ? '#00ff88' : '#ff4d4d', 
+                  fontWeight: 'bold' 
+                }}>
+                  {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 };
 
-// Leaderboard View
-const LeaderboardView = ({ tokens, onVote, onBoost, canVote, userVotes }) => (
-  <div className="leaderboard">
-    <h2>🏆 AI Meme Index Leaderboard</h2>
-    <div className="leaderboard-list">
-      {tokens.slice(0, 50).map((token, idx) => {
-        const hasVoted = userVotes.has(token.id);
-        return (
-          <div key={token.id} className={`leaderboard-item ${hasVoted ? 'voted' : ''} ${token.boost?.golden ? 'golden' : ''}`}>
-            <div className="item-rank">
-              <span className="rank-number">#{idx + 1}</span>
-              {token.boost && <span className="rank-boost">×{token.boost.multiplier}</span>}
-            </div>
-            <div className="item-token">
-              {token.logo && <img src={token.logo} alt={token.symbol} />}
-              <div>
-                <div className="token-symbol">{token.symbol}</div>
-                <div className="token-name">{token.name}</div>
-              </div>
-            </div>
-            <div className="item-score">{token.memeScore.toFixed(1)}</div>
-            <div className="item-stats">
-              <span className={token.priceChange >= 0 ? 'positive' : 'negative'}>
-                {token.priceChange >= 0 ? '+' : ''}{token.priceChange.toFixed(2)}%
-              </span>
-              <span>${(token.volume24h / 1000).toFixed(0)}K vol</span>
-            </div>
-            <div className="item-votes">❤️ {token.votes}</div>
-            <div className="item-actions">
-              <button 
-                className={`vote-btn ${hasVoted ? 'voted' : ''}`}
-                onClick={() => onVote(token)}
-                disabled={!canVote || hasVoted}
-              >
-                {hasVoted ? '✓' : '🗳️'}
-              </button>
-              <button className="boost-btn-small" onClick={() => onBoost(token)}>🚀</button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  </div>
-);
+// Mobile Action Modal
+const MobileActionModal = ({ token, isOpen, onClose, onVote, onBoost, canVote, hasVoted }) => {
+  if (!isOpen || !token) return null;
 
-// Boost Modal
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="mobile-action-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Actions for {token.symbol}</h2>
+          <button onClick={onClose}>×</button>
+        </div>
+        <div className="token-info">
+          <div>
+            <div className="token-symbol">{token.symbol}</div>
+            <div className="token-score">{token.memeScore.toFixed(1)} Score</div>
+          </div>
+        </div>
+        <div className="action-buttons">
+          <button 
+            className={`vote-btn ${hasVoted ? 'voted' : ''}`}
+            onClick={() => {
+              onVote(token);
+              onClose();
+            }}
+            disabled={!canVote}
+          >
+            {hasVoted ? '✓ Voted' : '🗳️ Vote'}
+          </button>
+          <button className="boost-btn" onClick={() => {
+            onBoost(token);
+            onClose();
+          }}>
+            🚀 Boost
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Leaderboard View with instant search (clears immediately on delete)
+const LeaderboardView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile, onItemClick }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    const search = async () => {
+      if (!searchTerm.trim() || searchTerm.length < 2) {
+        setSearchResults([]);
+        setIsSearching(false);
+        return;
+      }
+      setIsSearching(true);
+      const results = await searchTokens(searchTerm);
+      setSearchResults(results);
+      setIsSearching(false);
+    };
+
+    search();
+  }, [searchTerm]);
+
+  const displayTokens = searchTerm.trim() && searchTerm.length >= 2 ? searchResults : tokens;
+
+  return (
+    <div className="leaderboard">
+      <h2>🏆 AI Meme Index Leaderboard</h2>
+      <div className="search-container">
+        <input
+          type="text"
+          placeholder="Search by CA, ticker, or name..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="search-input"
+        />
+        {isSearching && <span className="search-loading">🔍 Searching...</span>}
+      </div>
+      <div className="leaderboard-list">
+        {displayTokens.slice(0, 50).map((token, idx) => {
+          const hasVoted = userVotes.has(token.id);
+          return (
+            <div 
+              key={token.id} 
+              className={`leaderboard-item ${hasVoted ? 'voted' : ''} ${token.boost?.golden ? 'golden' : ''} ${isMobile ? 'mobile-clickable' : ''}`}
+              onClick={isMobile ? () => onItemClick(token) : undefined}
+            >
+              <div className="item-rank">
+                <span className="rank-number">#{idx + 1}</span>
+                {token.boost && <span className="rank-boost">×{token.boost.multiplier}</span>}
+              </div>
+              <div className="item-token">
+                {token.logo && <img src={token.logo} alt={token.symbol} style={{objectFit: 'cover'}} />}
+                <div>
+                  <div className="token-symbol">{token.symbol}</div>
+                  <div className="token-name">{token.name}</div>
+                </div>
+              </div>
+              <div className="item-score">{token.memeScore.toFixed(1)}</div>
+              <div className="item-stats">
+                <span className={token.priceChange >= 0 ? 'positive' : 'negative'}>
+                  {token.priceChange >= 0 ? '+' : ''}{token.priceChange.toFixed(2)}%
+                </span>
+                <span>${(token.volume24h / 1000).toFixed(0)}K vol</span>
+              </div>
+              <div className="item-votes">❤️ {token.votes}</div>
+              {!isMobile && (
+                <div className="item-actions">
+                  <button 
+                    className={`vote-btn ${hasVoted ? 'voted' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onVote(token);
+                    }}
+                    disabled={!canVote}
+                  >
+                    {hasVoted ? '✓' : '🗳️'}
+                  </button>
+                  <button className="boost-btn-small" onClick={(e) => {
+                    e.stopPropagation();
+                    onBoost(token);
+                  }}>🚀</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// Boost Modal (simpler, from older)
 const BoostModal = ({ token, isOpen, onClose }) => {
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -499,28 +911,40 @@ const BoostModal = ({ token, isOpen, onClose }) => {
   );
 };
 
-// Tweet Modal
+// Tweet Modal, NewsSection, TrendingBar remain the same as older
+
 const TweetModal = ({ tweet, onClose }) => {
   if (!tweet) return null;
 
-  // Extract image url if available
   let imageUrl = null;
+  let videoUrl = null;
+
   if (tweet.entities?.urls) {
-    const mediaUrl = tweet.entities.urls.find(url => url.expanded_url.includes('pbs.twimg.com/media'));
-    if (mediaUrl) {
-      // Extract the media ID and format
-      const match = mediaUrl.expanded_url.match(/\/media\/([^?]+)\?format=([a-z]+)&/);
-      if (match) {
-        const mediaId = match[1];
-        const format = match[2];
-        imageUrl = `https://pbs.twimg.com/media/${mediaId}.${format}:large`;
-      } else {
-        imageUrl = mediaUrl.expanded_url.replace(/name=small/, 'name=large').replace(/:small/, ':large');
+    tweet.entities.urls.forEach(urlObj => {
+      const expanded = urlObj.expanded_url || urlObj.url;
+      if (expanded.includes('pbs.twimg.com/media')) {
+        const mediaMatch = expanded.match(/\/media\/([^?]+)/);
+        if (mediaMatch) {
+          const mediaId = mediaMatch[1];
+          imageUrl = `https://pbs.twimg.com/media/${mediaId}?format=jpg&name=large`;
+        }
       }
-    }
-  } else if (tweet.attachments?.media_keys) {
-    // Fallback to constructing URL
-    imageUrl = `https://pbs.twimg.com/media/${tweet.attachments.media_keys[0]}?format=jpg&name=large`;
+    });
+  }
+
+  if (tweet.attachments?.media_keys && !imageUrl) {
+    const mediaKey = tweet.attachments.media_keys[0];
+    imageUrl = `https://pbs.twimg.com/media/${mediaKey}?format=jpg&name=large`;
+  }
+
+  if (tweet.includes?.media) {
+    tweet.includes.media.forEach(media => {
+      if (media.type === 'photo' && !imageUrl) {
+        imageUrl = media.url || media.media_key ? `https://pbs.twimg.com/media/${media.media_key}?format=jpg&name=large` : null;
+      } else if (media.type === 'video' && !videoUrl) {
+        videoUrl = media.variants?.[0]?.url || null;
+      }
+    });
   }
 
   return (
@@ -532,21 +956,21 @@ const TweetModal = ({ tweet, onClose }) => {
         </div>
         <div className="tweet-content">
           <div className="tweet-profile">
-            {tweet.user?.profile_image_url && <img src={tweet.user.profile_image_url} alt={tweet.user.name} className="tweet-pfp" />}
+            {tweet.user?.profile_image_url && <img src={tweet.user.profile_image_url.replace('_normal', '_bigger')} alt={tweet.user.name} className="tweet-pfp" />}
             <div className="tweet-user-info">
               <strong>{tweet.user?.name || 'Anonymous'}</strong>
-              <span>@{tweet.user?.username}</span>
+              <span>@{tweet.user?.username || ''}</span>
             </div>
           </div>
           <p className="tweet-text">{tweet.text}</p>
           {imageUrl && <img src={imageUrl} alt="Tweet media" className="tweet-image" />}
+          {videoUrl && <video src={videoUrl} controls className="tweet-video" style={{ maxWidth: '100%', borderRadius: '12px' }} />}
         </div>
       </div>
     </div>
   );
 };
 
-// News Section with Crypto Updates
 const NewsSection = () => {
   const [tweets, setTweets] = useState([]);
   const [selectedTweet, setSelectedTweet] = useState(null);
@@ -557,7 +981,7 @@ const NewsSection = () => {
       setTweets(tweetData);
     };
     loadTweets();
-    const interval = setInterval(loadTweets, 30 * 1000); // 30 seconds for tweets
+    const interval = setInterval(loadTweets, 30 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -585,7 +1009,7 @@ const NewsSection = () => {
         title: `${tweet.user?.name || 'Crypto'}: ${tweet.text?.slice(0, 80) || 'Update'}...`,
         time: getRelativeTime(tweet.created_at),
         type: 'trending',
-        tweet // Keep full tweet for modal
+        tweet
       }))
     : defaultNews;
 
@@ -609,7 +1033,6 @@ const NewsSection = () => {
   );
 };
 
-// Trending News Bar for top gaining tokens
 const TrendingBar = ({ tokens }) => {
   const gainingTokens = tokens
     .filter(t => t.priceChange > 0)
@@ -622,7 +1045,7 @@ const TrendingBar = ({ tokens }) => {
       <div className="trending-list">
         {gainingTokens.map((token, idx) => (
           <div key={idx} className="trending-item">
-            {token.logo && <img src={token.logo} alt={token.symbol} />}
+            {token.logo && <img src={token.logo} alt={token.symbol} style={{objectFit: 'cover'}} />}
             <span>{token.symbol}</span>
             <span className="positive">+{token.priceChange.toFixed(2)}%</span>
           </div>
@@ -632,7 +1055,7 @@ const TrendingBar = ({ tokens }) => {
   );
 };
 
-// Main App
+// Dashboard (from older, with 12h votes, 15s refresh)
 const Dashboard = () => {
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -640,7 +1063,16 @@ const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [userVotes, setUserVotes] = useState(new Set());
   const [boostToken, setBoostToken] = useState(null);
+  const [selectedToken, setSelectedToken] = useState(null);
+  const [isMobile, setIsMobile] = useState(false);
   const { publicKey, connected } = useWallet();
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     signInAnonymously(auth);
@@ -656,7 +1088,6 @@ const Dashboard = () => {
         return [];
       }
       
-      // Load votes with error handling
       let voteCounts = {};
       let userVotedSet = new Set();
       
@@ -678,7 +1109,6 @@ const Dashboard = () => {
         // Silently handle
       }
 
-      // Load boosts with error handling
       let boostsData = {};
       
       try {
@@ -714,7 +1144,7 @@ const Dashboard = () => {
     };
     initialLoad();
 
-    const interval = setInterval(loadData, 15 * 1000); // Refresh tokens every 15 seconds
+    const interval = setInterval(loadData, 15 * 1000); // 15 seconds
     return () => clearInterval(interval);
   }, [user]);
 
@@ -770,6 +1200,10 @@ const Dashboard = () => {
     }
   };
 
+  const handleItemClick = (token) => {
+    setSelectedToken(token);
+  };
+
   if (loading) {
     return (
       <div className="loading">
@@ -810,9 +1244,9 @@ const Dashboard = () => {
             <button onClick={loadData} className="refresh">🔄 Refresh</button>
           </div>
 
-          {viewMode === 'leaderboard' && <LeaderboardView tokens={tokens} onVote={handleVote} onBoost={setBoostToken} canVote={connected && user} userVotes={userVotes} />}
-          {viewMode === 'bubble' && <BubbleView tokens={tokens} onVote={handleVote} onBoost={setBoostToken} canVote={connected && user} userVotes={userVotes} />}
-          {viewMode === 'treemap' && <TreeMapView tokens={tokens} onVote={handleVote} onBoost={setBoostToken} canVote={connected && user} userVotes={userVotes} />}
+          {viewMode === 'leaderboard' && <LeaderboardView tokens={tokens} onVote={handleVote} onBoost={setBoostToken} canVote={connected && user} userVotes={userVotes} isMobile={isMobile} onItemClick={handleItemClick} />}
+          {viewMode === 'bubble' && <BubbleView tokens={tokens} onVote={handleVote} onBoost={setBoostToken} canVote={connected && user} userVotes={userVotes} isMobile={isMobile} onItemClick={handleItemClick} />}
+          {viewMode === 'treemap' && <TreeMapView tokens={tokens} onVote={handleVote} onBoost={setBoostToken} canVote={connected && user} userVotes={userVotes} isMobile={isMobile} onItemClick={handleItemClick} />}
         </div>
         <div className="sidebar">
           <div className="ai-indicator">
@@ -824,22 +1258,45 @@ const Dashboard = () => {
       </div>
 
       {boostToken && <BoostModal token={boostToken} isOpen={!!boostToken} onClose={() => setBoostToken(null)} />}
+      <MobileActionModal 
+        token={selectedToken} 
+        isOpen={!!selectedToken} 
+        onClose={() => setSelectedToken(null)} 
+        onVote={handleVote} 
+        onBoost={setBoostToken} 
+        canVote={connected && user} 
+        hasVoted={userVotes.has(selectedToken?.id || '')} 
+      />
     </>
   );
 };
 
-const AppContent = () => (
-  <div className="app">
-    <header>
-      <div className="logo">
-        <h1>🚀 AIMI</h1>
-        <span>AI Meme Index</span>
-      </div>
-      <WalletMultiButton />
-    </header>
-    <Dashboard />
-  </div>
-);
+const AppContent = () => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  return (
+    <div className="app">
+      <header>
+        <div className="ca-header">CA: SOON</div>
+        <div className="nav-section">
+          <div className="logo">
+            <h1>🚀 AIMI</h1>
+            <span>AI Meme Index</span>
+          </div>
+          <WalletMultiButton />
+        </div>
+      </header>
+      <Dashboard />
+    </div>
+  );
+};
 
 export default function App() {
   const endpoints = useMemo(() => [
@@ -873,6 +1330,7 @@ export default function App() {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
           background: #0a0e1a;
           color: #fff;
+          touch-action: manipulation;
         }
 
         .app { min-height: 100vh; }
@@ -882,11 +1340,35 @@ export default function App() {
           border-bottom: 1px solid #1a1f2e;
           padding: 16px 24px;
           display: flex;
-          justify-content: space-between;
-          align-items: center;
+          flex-direction: column;
+          gap: 12px;
           position: sticky;
           top: 0;
           z-index: 100;
+        }
+
+        .ca-header {
+          background: linear-gradient(135deg, #9945FF, #14F195);
+          color: white;
+          padding: 8px 16px;
+          border-radius: 20px;
+          font-size: 14px;
+          font-weight: 600;
+          align-self: center;
+          width: fit-content;
+        }
+
+        .nav-section {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+        }
+
+        .logo {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
         }
 
         .logo h1 {
@@ -937,8 +1419,9 @@ export default function App() {
           border: 1px solid #1a1f2e;
           height: fit-content;
           position: sticky;
-          top: 90px;
+          top: 120px;
           flex: 0 0 300px;
+          min-width: 300px;
         }
 
         .ai-indicator {
@@ -984,9 +1467,10 @@ export default function App() {
           border-left: 3px solid #9945FF;
           cursor: pointer;
           transition: all 0.2s;
+          touch-action: manipulation;
         }
 
-        .news-item:hover {
+        .news-item:hover, .news-item:active {
           background: #252a3a;
           transform: translateX(4px);
         }
@@ -1038,6 +1522,7 @@ export default function App() {
           font-size: 14px;
           font-weight: 600;
           transition: all 0.2s;
+          touch-action: manipulation;
         }
 
         .view-tabs button.active {
@@ -1054,6 +1539,7 @@ export default function App() {
           cursor: pointer;
           font-size: 14px;
           font-weight: 600;
+          touch-action: manipulation;
         }
 
         /* Leaderboard */
@@ -1063,6 +1549,39 @@ export default function App() {
           background: linear-gradient(135deg, #9945FF, #14F195, #FFD700);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
+        }
+
+        .search-container {
+          margin-bottom: 20px;
+          position: relative;
+        }
+
+        .search-loading {
+          position: absolute;
+          right: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: #9945FF;
+          font-size: 12px;
+        }
+
+        .search-input {
+          width: 100%;
+          padding: 12px 16px;
+          background: #1a1f2e;
+          border: 1px solid #1a1f2e;
+          border-radius: 8px;
+          color: white;
+          font-size: 14px;
+        }
+
+        .search-input::placeholder {
+          color: #8b8b8b;
+        }
+
+        .search-input:focus {
+          border-color: #9945FF;
+          outline: none;
         }
 
         .leaderboard-list {
@@ -1081,11 +1600,20 @@ export default function App() {
           border-radius: 12px;
           border: 1px solid #1a1f2e;
           transition: all 0.2s;
+          touch-action: manipulation;
         }
 
-        .leaderboard-item:hover {
+        .leaderboard-item:hover:not(.mobile-clickable), .leaderboard-item:active:not(.mobile-clickable) {
           background: #1a1f2e;
           transform: translateX(4px);
+        }
+
+        .leaderboard-item.mobile-clickable {
+          cursor: pointer;
+        }
+
+        .leaderboard-item.mobile-clickable:hover, .leaderboard-item.mobile-clickable:active {
+          background: rgba(153, 69, 255, 0.1);
         }
 
         .leaderboard-item.voted {
@@ -1131,6 +1659,7 @@ export default function App() {
           width: 40px;
           height: 40px;
           border-radius: 50%;
+          object-fit: cover;
         }
 
         .token-symbol {
@@ -1170,13 +1699,19 @@ export default function App() {
           gap: 8px;
         }
 
-        .vote-btn, .boost-btn-small {
+        .vote-btn, .boost-btn-small, .boost-btn {
           padding: 8px 16px;
           border: none;
           border-radius: 8px;
           cursor: pointer;
           font-size: 16px;
           transition: all 0.2s;
+          min-height: 44px;
+          min-width: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          touch-action: manipulation;
         }
 
         .vote-btn {
@@ -1194,7 +1729,7 @@ export default function App() {
           cursor: not-allowed;
         }
 
-        .boost-btn-small {
+        .boost-btn-small, .boost-btn {
           background: #FFD700;
           color: #0a0e1a;
         }
@@ -1203,7 +1738,6 @@ export default function App() {
         .bubble-view {
           position: relative;
           width: 100%;
-          min-height: 800px;
           background: #0f1419;
           border-radius: 16px;
           border: 1px solid #1a1f2e;
@@ -1222,9 +1756,10 @@ export default function App() {
           border: 3px solid rgba(255, 255, 255, 0.2);
           animation: floatAnim 6s ease-in-out infinite;
           user-select: none;
+          touch-action: manipulation;
         }
 
-        .bubble:hover {
+        .bubble:hover, .bubble:active {
           transform: translate(-50%, -50%) scale(1.15) !important;
           box-shadow: 0 10px 50px rgba(0, 0, 0, 0.7);
           z-index: 10;
@@ -1244,13 +1779,6 @@ export default function App() {
         @keyframes goldenPulse {
           0%, 100% { box-shadow: 0 0 40px rgba(255, 215, 0, 0.6); }
           50% { box-shadow: 0 0 60px rgba(255, 215, 0, 0.9); }
-        }
-
-        .bubble-logo {
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
-          margin-bottom: 8px;
         }
 
         .bubble-symbol {
@@ -1275,31 +1803,35 @@ export default function App() {
 
         /* TreeMap */
         .treemap {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 4px;
+          position: relative;
+          width: 100%;
+          background: #0f1419;
+          border-radius: 16px;
+          border: 1px solid #1a1f2e;
+          overflow: hidden;
+          padding: 0;
         }
 
         .treemap-cell {
-          position: relative;
-          border-radius: 8px;
-          padding: 20px;
+          position: absolute;
+          border-radius: 4px;
           cursor: pointer;
-          transition: all 0.3s;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          transition: all 0.3s ease;
+          overflow: hidden;
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
+          justify-content: center;
+          align-items: center;
+          touch-action: manipulation;
         }
 
-        .treemap-cell:hover {
-          transform: scale(1.03);
-          box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
-          z-index: 5;
+        .treemap-cell:hover, .treemap-cell:active {
+          transform: scale(1.05);
+          z-index: 10;
         }
 
         .treemap-cell.golden {
-          border-color: #FFD700;
+          border: 2px solid #FFD700;
           box-shadow: 0 0 35px rgba(255, 215, 0, 0.5);
           animation: goldenPulse 2s ease-in-out infinite;
         }
@@ -1307,29 +1839,27 @@ export default function App() {
         .cell-content {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 1px;
           text-align: center;
-        }
-
-        .cell-content img {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          margin: 0 auto;
+          width: 100%;
+          height: 100%;
+          justify-content: center;
+          align-items: center;
         }
 
         .cell-content h3 {
-          font-size: 18px;
+          font-size: 1em;
           margin: 0;
-        }
-
-        .cell-price {
-          font-size: 16px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
           font-weight: bold;
+          color: white;
         }
 
         .cell-change {
-          font-size: 14px;
+          font-size: 0.9em;
+          font-weight: bold;
         }
 
         /* Trending Bar */
@@ -1347,6 +1877,13 @@ export default function App() {
           display: flex;
           gap: 16px;
           overflow-x: auto;
+          padding: 8px 0;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+
+        .trending-list::-webkit-scrollbar {
+          display: none;
         }
 
         .trending-item {
@@ -1357,12 +1894,15 @@ export default function App() {
           padding: 8px 16px;
           border-radius: 20px;
           white-space: nowrap;
+          min-width: fit-content;
+          flex-shrink: 0;
         }
 
         .trending-item img {
           width: 24px;
           height: 24px;
           border-radius: 50%;
+          object-fit: cover;
         }
 
         /* Modal Styles */
@@ -1377,15 +1917,22 @@ export default function App() {
           align-items: center;
           justify-content: center;
           z-index: 1000;
+          padding: 20px;
         }
 
-        .boost-modal, .tweet-modal {
+        .boost-modal, .tweet-modal, .mobile-action-modal {
           background: #0f1419;
           border-radius: 16px;
           padding: 24px;
-          width: 90%;
+          width: 100%;
           max-width: 500px;
           border: 1px solid #1a1f2e;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+
+        .mobile-action-modal {
+          max-width: 400px;
         }
 
         .modal-header {
@@ -1405,6 +1952,47 @@ export default function App() {
           color: #8b8b8b;
           font-size: 24px;
           cursor: pointer;
+          touch-action: manipulation;
+        }
+
+        .token-info {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px;
+          background: #1a1f2e;
+          border-radius: 12px;
+          margin-bottom: 20px;
+        }
+
+        .token-info .token-symbol {
+          font-size: 18px;
+          font-weight: 700;
+        }
+
+        .token-info .token-score {
+          font-size: 14px;
+          color: #FFD700;
+        }
+
+        .action-buttons {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .action-buttons .vote-btn {
+          width: 100%;
+          justify-content: center;
+          font-size: 16px;
+          padding: 12px;
+        }
+
+        .action-buttons .boost-btn {
+          width: 100%;
+          justify-content: center;
+          font-size: 16px;
+          padding: 12px;
         }
 
         .boost-packages {
@@ -1421,6 +2009,11 @@ export default function App() {
           cursor: pointer;
           text-align: center;
           transition: all 0.2s;
+          touch-action: manipulation;
+        }
+
+        .package:hover, .package:active {
+          transform: scale(1.05);
         }
 
         .package.selected {
@@ -1466,6 +2059,8 @@ export default function App() {
           border-radius: 10px;
           font-weight: 600;
           cursor: pointer;
+          min-height: 48px;
+          touch-action: manipulation;
         }
 
         .confirm-boost-btn:disabled {
@@ -1489,6 +2084,7 @@ export default function App() {
           width: 40px;
           height: 40px;
           border-radius: 50%;
+          object-fit: cover;
         }
 
         .tweet-user-info {
@@ -1511,33 +2107,71 @@ export default function App() {
           white-space: pre-wrap;
         }
 
-        .tweet-image {
+        .tweet-image, .tweet-video {
           max-width: 100%;
           border-radius: 12px;
           margin-top: 8px;
         }
 
         /* Mobile Responsive */
+        @media (max-width: 1200px) {
+          .dashboard {
+            gap: 16px;
+            padding: 16px;
+          }
+
+          .sidebar {
+            flex: 0 0 280px;
+          }
+        }
+
         @media (max-width: 1024px) {
           .dashboard {
             flex-direction: column;
+            gap: 16px;
           }
 
           .sidebar {
             position: relative;
             top: 0;
             order: 2;
-            flex: auto;
+            flex: none;
+            width: 100%;
+            min-width: auto;
           }
 
           .main-content {
             order: 1;
+            width: 100%;
+          }
+
+          header {
+            padding: 16px 20px;
+          }
+
+          .nav-section {
+            flex-wrap: wrap;
+            gap: 12px;
+          }
+
+          .ca-header {
+            order: 0;
           }
         }
 
         @media (max-width: 768px) {
           header {
-            padding: 12px 16px;
+            padding: 16px 16px;
+            gap: 12px;
+          }
+
+          .nav-section {
+            justify-content: space-between;
+            align-items: center;
+          }
+
+          .logo {
+            align-items: flex-start;
           }
 
           .logo h1 {
@@ -1545,105 +2179,114 @@ export default function App() {
           }
 
           .dashboard {
-            padding: 16px;
-            gap: 16px;
+            padding: 12px;
+            gap: 12px;
           }
 
           .controls {
             flex-direction: column;
             align-items: stretch;
+            gap: 12px;
           }
 
           .view-tabs {
             width: 100%;
+            justify-content: stretch;
+            flex-wrap: wrap;
           }
 
           .view-tabs button {
             flex: 1;
-            padding: 10px;
-            font-size: 13px;
+            padding: 12px;
+            font-size: 14px;
+            min-width: 100px;
           }
 
           .leaderboard-item {
-            grid-template-columns: 60px 1fr 80px;
+            grid-template-columns: 60px 1fr 80px 120px 60px;
             gap: 12px;
             padding: 12px;
           }
 
-          .item-stats, .item-votes, .item-actions {
+          .leaderboard-item .item-actions {
             display: none;
           }
 
-          .bubble-view {
-            min-height: 400px;
+          .item-stats span:last-child {
+            display: none;
           }
 
-          .bubble {
-            min-width: 80px !important;
-            min-height: 80px !important;
-            max-width: 120px !important;
-            max-height: 120px !important;
-          }
-
-          .bubble-logo {
-            width: 30px;
-            height: 30px;
-          }
-
-          .bubble-symbol {
-            font-size: 12px;
-          }
-
-          .bubble-price, .bubble-change {
-            font-size: 10px;
-          }
-
-          .treemap {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-          }
-
-          .treemap-cell {
-            flex: none;
-            width: 100%;
-            height: auto;
-            min-height: 150px;
-            padding: 16px;
-          }
-
-          .treemap-cell:nth-child(1) {
-            min-height: 250px;
-          }
-
-          .treemap-cell:nth-child(2), .treemap-cell:nth-child(3) {
-            min-height: 200px;
-          }
-
-          .cell-content h3 {
-            font-size: 20px;
-          }
-
-          .cell-price {
-            font-size: 18px;
-          }
-
-          .cell-change {
-            font-size: 16px;
+          .item-votes {
+            display: none;
           }
 
           .boost-packages {
             grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
           }
 
           .news-section {
             margin-bottom: 20px;
+          }
+
+          .trending-list {
+            gap: 8px;
+          }
+
+          .trending-item {
+            padding: 6px 12px;
+            font-size: 14px;
+          }
+
+          .sidebar {
+            padding: 16px;
+          }
+
+          .news-item {
+            padding: 10px;
+          }
+
+          .news-title {
+            font-size: 12px;
+          }
+
+          .modal-overlay {
+            padding: 10px;
+          }
+
+          .mobile-action-modal {
+            width: 100%;
+            max-width: none;
+            margin: 0;
+          }
+
+          .action-buttons {
+            gap: 16px;
+          }
+
+          .action-buttons .vote-btn, .action-buttons .boost-btn {
+            min-height: 50px;
+            font-size: 18px;
+          }
+
+          .search-input {
+            padding: 14px 16px;
+            font-size: 16px;
+          }
+
+          .ca-header {
+            font-size: 13px;
+            padding: 6px 12px;
           }
         }
 
         @media (max-width: 480px) {
           .logo h1 {
             font-size: 18px;
+          }
+
+          .logo span {
+            font-size: 10px;
           }
 
           .leaderboard h2 {
@@ -1663,31 +2306,121 @@ export default function App() {
             font-size: 20px;
           }
 
-          .bubble {
-            min-width: 70px !important;
-            min-height: 70px !important;
-            max-width: 100px !important;
-            max-height: 100px !important;
+          .vote-btn, .boost-btn-small {
+            padding: 12px;
+            min-height: 48px;
+            min-width: 48px;
+            font-size: 18px;
           }
 
           .boost-packages {
             grid-template-columns: 1fr;
+            gap: 12px;
+          }
+
+          .package {
+            padding: 20px;
+          }
+
+          .tweet-modal {
+            margin: 8px;
+            width: calc(100% - 16px);
+            padding: 16px;
+          }
+
+          .ca-header {
+            font-size: 12px;
+            padding: 6px 12px;
+            align-self: stretch;
+            text-align: center;
+          }
+
+          .nav-section {
+            align-items: center;
+          }
+
+          .wallet-adapter-button {
+            width: 100% !important;
+            margin-top: 8px !important;
+          }
+
+          .leaderboard-item {
+            grid-template-columns: 50px 1fr 60px 80px;
+            gap: 8px;
+            padding: 10px;
+            font-size: 14px;
+          }
+
+          .item-stats {
+            font-size: 12px;
+          }
+
+          .view-tabs button {
+            padding: 10px;
+            font-size: 12px;
+          }
+
+          .trending-bar {
+            padding: 12px;
+          }
+
+          .trending-item {
+            padding: 4px 8px;
+            font-size: 12px;
+          }
+
+          .trending-item img {
+            width: 20px;
+            height: 20px;
+          }
+
+          .token-info {
+            padding: 12px;
+          }
+
+          .news-item {
+            padding: 8px;
+          }
+
+          .news-title {
+            font-size: 11px;
+          }
+
+          .news-time {
+            font-size: 10px;
+          }
+
+          .controls .refresh {
+            padding: 12px;
+            font-size: 16px;
+          }
+
+          .search-input {
+            padding: 16px;
+            font-size: 16px;
+          }
+
+          .sidebar {
+            padding: 12px;
           }
         }
 
         /* Wallet Adapter */
         .wallet-adapter-button {
           background: linear-gradient(135deg, #9945FF, #14F195) !important;
-          height: 42px !important;
+          height: 44px !important;
           border-radius: 10px !important;
           font-weight: 600 !important;
+          min-height: 44px !important;
+          touch-action: manipulation;
         }
 
         @media (max-width: 768px) {
           .wallet-adapter-button {
-            height: 38px !important;
-            font-size: 13px !important;
-            padding: 0 12px !important;
+            height: 44px !important;
+            font-size: 14px !important;
+            padding: 0 16px !important;
+            width: auto;
           }
         }
       `}</style>
