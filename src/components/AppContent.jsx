@@ -22,7 +22,7 @@ const AppContent = () => {
         <div className="nav-section">
           <div className="logo">
             <div className="logo-item">
-              <img src="logo-square.jpg" alt="Polymi Logo"
+              <img src="logo-square.png" alt="Polymi Logo"
                 style={{ width: '50px', height: '50px', borderRadius: '25px' }}
               />
             </div>
