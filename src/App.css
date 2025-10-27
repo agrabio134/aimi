@@ -50,7 +50,7 @@ header {
 }
 
 .logo h1 {
-  font-size: 24px;
+  font-size: 20px;
   background: linear-gradient(135deg, #9945FF, #14F195, #FFD700);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -851,8 +851,8 @@ header {
     align-items: flex-start;
   }
 
-  .logo h1 {
-    font-size: 20px;
+  .logo-item h1 {
+    font-size: 14px;
   }
 
   .dashboard {
@@ -959,7 +959,12 @@ header {
 
 @media (max-width: 480px) {
   .logo h1 {
-    font-size: 18px;
+    font-size: 16px;
+  }
+
+  .logo-item{
+    flex-direction: column;
+    align-items: center;
   }
 
   .logo span {
