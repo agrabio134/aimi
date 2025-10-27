@@ -1,8 +1,12 @@
-// src/components/AppContent.jsx (fixed import)
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'; // Named import
 import Dashboard from './Dashboard';
+//fontawesome icon twitter 
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faXTwitter } from '@fortawesome/free-brands-svg-icons';
+
+
 
 const AppContent = () => {
   const [isMobile, setIsMobile] = useState(false);
@@ -19,6 +23,7 @@ const AppContent = () => {
     <div className="app">
       <header>
         <div className="ca-header">CA: SOON</div>
+
         <div className="nav-section">
           <div className="logo">
             <div className="logo-item">
@@ -33,7 +38,13 @@ const AppContent = () => {
             </div>
 
           </div>
-          <WalletMultiButton />
+          <div className="nav-right">
+            <a href="https://x.com/polymi_ai" target="_blank" rel="noopener noreferrer">
+              <FontAwesomeIcon icon={faXTwitter} />
+            </a>
+            <WalletMultiButton />
+          </div>
+
         </div>
       </header>
       <Dashboard isMobile={isMobile} connected={connected} publicKey={publicKey} />

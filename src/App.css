@@ -790,6 +790,23 @@ header {
   margin-top: 8px;
 }
 
+.nav-right {
+  display: flex;
+  align-items: center;
+}
+
+.nav-right a {
+  margin-right: 10px;
+  color: #ffffff;
+  font-size: 1.5em;
+  text-decoration: none;
+}
+
+.nav-right a:hover {
+  color: #1DA1F2; /* X/Twitter blue */
+}
+
+
 /* Mobile Responsive */
 @media (max-width: 1200px) {
   .dashboard {
@@ -1085,6 +1102,13 @@ header {
   .sidebar {
     padding: 12px;
   }
+
+  
+  .nav-right a {
+  margin-right: 8px;
+  font-size: 1.2em;
+}
+
 }
 
 /* Wallet Adapter */
@@ -1104,6 +1128,11 @@ header {
     padding: 0 16px !important;
     width: auto;
   }
+  
+  .nav-right a {
+  margin-right: 8px;
+  font-size: 1.2em;
+}
 }
 
 
@@ -1146,3 +1175,10 @@ header {
 .text-success { color: #14F195 !important; }
 .text-warning { color: #FFD700 !important; }
 .text-danger { color: #ff4d4d !important; }
+
+
+
+
+
+
+/* ---------- Adjusted Logo Styles for Mobile ---------- */
