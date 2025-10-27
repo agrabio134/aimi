@@ -1,5 +1,7 @@
-// src/components/LeaderboardView.js
+// src/components/LeaderboardView.jsx
 import React, { useState, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faSearch, faVoteYea, faRocket, faTrophy } from '@fortawesome/free-solid-svg-icons';
 import { searchTokens } from '../utils/api';
 
 const LeaderboardView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile, onItemClick }) => {
@@ -8,80 +10,88 @@ const LeaderboardView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile
   const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
-    const search = async () => {
-      if (!searchTerm.trim() || searchTerm.length < 2) {
-        setSearchResults([]);
-        setIsSearching(false);
-        return;
-      }
+    const go = async () => {
+      if (!searchTerm.trim() || searchTerm.length < 2) { setSearchResults([]); setIsSearching(false); return; }
       setIsSearching(true);
-      const results = await searchTokens(searchTerm);
-      setSearchResults(results);
+      const r = await searchTokens(searchTerm);
+      setSearchResults(r);
       setIsSearching(false);
     };
-
-    search();
+    go();
   }, [searchTerm]);
 
-  const displayTokens = searchTerm.trim() && searchTerm.length >= 2 ? searchResults : tokens;
+  const display = searchTerm.trim() && searchTerm.length >= 2 ? searchResults : tokens;
 
   return (
     <div className="leaderboard">
-      <h2>🏆 AI Meme Index Leaderboard</h2>
-      <div className="search-container">
+      <h2 className="gradient-heading mb-3 d-flex align-items-center gap-2">
+        <FontAwesomeIcon icon={faTrophy} />
+        AI Meme Index Leaderboard
+      </h2>
+
+      {/* Search */}
+      <div className="search-container position-relative mb-3">
         <input
-          type="text"
-          placeholder="Search by CA, ticker, or name..."
+          placeholder="Search CA / ticker / name…"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="search-input"
+          onChange={e => setSearchTerm(e.target.value)}
+          className="search-input w-100"
         />
-        {isSearching && <span className="search-loading">🔍 Searching...</span>}
+        {isSearching && <span className="search-loading"><FontAwesomeIcon icon={faSync} spin /> Searching…</span>}
       </div>
+
+      {/* List */}
       <div className="leaderboard-list">
-        {displayTokens.slice(0, 50).map((token, idx) => {
-          const hasVoted = userVotes.has(token.id);
+        {display.slice(0, 50).map((t, i) => {
+          const voted = userVotes.has(t.id);
           return (
-            <div 
-              key={token.id} 
-              className={`leaderboard-item ${hasVoted ? 'voted' : ''} ${token.boost?.golden ? 'golden' : ''} ${isMobile ? 'mobile-clickable' : ''}`}
-              onClick={isMobile ? () => onItemClick(token) : undefined}
+            <div
+              key={t.id}
+              className={`leaderboard-item ${voted ? 'voted' : ''} ${t.boost?.golden ? 'golden' : ''} ${isMobile ? 'mobile-clickable' : ''}`}
+              onClick={isMobile ? () => onItemClick(t) : undefined}
             >
+              {/* Rank */}
               <div className="item-rank">
-                <span className="rank-number">#{idx + 1}</span>
-                {token.boost && <span className="rank-boost">×{token.boost.multiplier}</span>}
+                <span className="rank-number">#{i + 1}</span>
+                {t.boost && <span className="rank-boost">×{t.boost.multiplier}</span>}
               </div>
+
+              {/* Token */}
               <div className="item-token">
-                {token.logo && <img src={token.logo} alt={token.symbol} style={{objectFit: 'cover'}} />}
+                {t.logo && <img src={t.logo} alt={t.symbol} />}
                 <div>
-                  <div className="token-symbol">{token.symbol}</div>
-                  <div className="token-name">{token.name}</div>
+                  <div className="token-symbol">{t.symbol}</div>
+                  <div className="token-name">{t.name}</div>
                 </div>
               </div>
-              <div className="item-score">{token.memeScore.toFixed(1)}</div>
+
+              {/* Score */}
+              <div className="item-score">{t.memeScore.toFixed(1)}</div>
+
+              {/* Stats */}
               <div className="item-stats">
-                <span className={token.priceChange >= 0 ? 'positive' : 'negative'}>
-                  {token.priceChange >= 0 ? '+' : ''}{token.priceChange.toFixed(2)}%
+                <span className={t.priceChange >= 0 ? 'positive' : 'negative'}>
+                  {t.priceChange >= 0 ? '+' : ''}{t.priceChange.toFixed(2)}%
                 </span>
-                <span>${(token.volume24h / 1000).toFixed(0)}K vol</span>
+                <span>${(t.volume24h / 1000).toFixed(0)}K vol</span>
               </div>
-              <div className="item-votes">❤️ {token.votes}</div>
+
+              {/* Votes */}
+              <div className="item-votes"><FontAwesomeIcon icon={faVoteYea} /> {t.votes}</div>
+
+              {/* Desktop actions */}
               {!isMobile && (
                 <div className="item-actions">
-                  <button 
-                    className={`vote-btn ${hasVoted ? 'voted' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onVote(token);
-                    }}
+                  <button
+                    className={`vote-btn ${voted ? 'voted' : ''}`}
+                    onClick={e => { e.stopPropagation(); onVote(t); }}
                     disabled={!canVote}
                   >
-                    {hasVoted ? '✓' : '🗳️'}
+                    {voted ? 'Check' : <FontAwesomeIcon icon={faVoteYea} />}
                   </button>
-                  <button className="boost-btn-small" onClick={(e) => {
-                    e.stopPropagation();
-                    onBoost(token);
-                  }}>🚀</button>
+                  <button className="boost-btn-small" onClick={e => { e.stopPropagation(); onBoost(t); }}>
+                    <FontAwesomeIcon icon={faRocket} />
+                  </button>
                 </div>
               )}
             </div>

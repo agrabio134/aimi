@@ -1,4 +1,4 @@
-// src/components/Dashboard.jsx (fixed: add missing imports for signInAnonymously and onAuthStateChanged)
+// src/components/Dashboard.jsx - Updated with FontAwesome icons
 import React, { useState, useEffect } from 'react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getDocs, collection, addDoc, query, where } from 'firebase/firestore';
@@ -7,9 +7,11 @@ import TrendingBar from './TrendingBar';
 import LeaderboardView from './LeaderboardView';
 import BubbleView from './BubbleView';
 import TreeMapView from './TreeMapView';
+import PolymarketView from './PolymarketView';
 import BoostModal from './BoostModal';
 import MobileActionModal from './MobileActionModal';
 import NewsSection from './NewsSection';
+import PolymarketWidget from './PolymarketWidget';
 import { calculateScore, fetchTokens } from '../utils/api';
 
 const Dashboard = ({ isMobile, connected, publicKey }) => {
@@ -20,6 +22,7 @@ const Dashboard = ({ isMobile, connected, publicKey }) => {
   const [userVotes, setUserVotes] = useState(new Set());
   const [boostToken, setBoostToken] = useState(null);
   const [selectedToken, setSelectedToken] = useState(null);
+  const [selectedMarket, setSelectedMarket] = useState(null);
 
   const auth = window.firebase.auth;
   const db = window.firebase.db;
@@ -57,7 +60,7 @@ const Dashboard = ({ isMobile, connected, publicKey }) => {
         });
       } catch (voteErr) {
         // Silently handle
-      }
+     y      }
 
       let boostsData = {};
       
@@ -143,7 +146,7 @@ const Dashboard = ({ isMobile, connected, publicKey }) => {
       });
 
       setUserVotes(prev => new Set([...prev, token.id]));
-      Swal.fire('Success!', 'Vote cast successfully! 🗳️', 'success');
+      Swal.fire('Success!', 'Vote cast successfully!', 'success');
       loadData();
     } catch (err) {
       Swal.fire('Error', 'Vote failed: ' + err.message, 'error');
@@ -158,21 +161,62 @@ const Dashboard = ({ isMobile, connected, publicKey }) => {
     setBoostToken(token);
   };
 
+  const handleMarketClick = (market) => {
+    setSelectedMarket(market);
+    Swal.fire({
+      title: market.question,
+      html: `
+        <div style="text-align: left; padding: 10px;">
+          <p style="color: #8b8b8b; margin-bottom: 15px;">${market.description || 'No description available'}</p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+            <div style="background: rgba(20, 241, 149, 0.1); padding: 12px; border-radius: 8px;">
+              <div style="font-size: 12px; color: #8b8b8b;">YES</div>
+              <div style="font-size: 24px; font-weight: bold; color: #14F195;">${market.sentiment.yesPrice}¢</div>
+            </div>
+            <div style="background: rgba(255, 77, 77, 0.1); padding: 12px; border-radius: 8px;">
+              <div style="font-size: 12px; color: #8b8b8b;">NO</div>
+              <div style="font-size: 24px; font-weight: bold; color: #ff4d4d;">${market.sentiment.noPrice}¢</div>
+            </div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 14px; color: #8b8b8b;">
+            <span><i class="fas fa-dollar-sign"></i> Volume: $${(market.volume / 1000).toFixed(1)}K</span>
+            <span><i class="fas fa-tint"></i> Liquidity: $${(market.liquidity / 1000).toFixed(1)}K</span>
+          </div>
+          <div style="margin-top: 10px; font-size: 14px; color: #8b8b8b;">
+            <i class="fas fa-calendar-alt"></i> Ends: ${market.endDate}
+          </div>
+          <div style="margin-top: 15px; padding: 10px; background: #1a1f2e; border-radius: 8px;">
+            <div style="font-size: 12px; color: #8b8b8b; margin-bottom: 5px;">Sentiment Score</div>
+            <div style="font-size: 28px; font-weight: bold; color: ${market.sentiment.score >= 70 ? '#14F195' : market.sentiment.score >= 50 ? '#FFD700' : '#ff4d4d'};">${market.sentiment.score}</div>
+          </div>
+        </div>
+      `,
+      confirmButtonText: 'Visit on Polymarket',
+      confirmButtonColor: '#9945FF',
+      showCancelButton: true,
+      cancelButtonText: 'Close'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        window.open(`https://polymarket.com/event/${market.id}`, '_blank');
+      }
+    });
+  };
+
   if (loading) {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>🤖 AI analyzing Solana meme tokens...</p>
+        <p><i className="fas fa-robot"></i> AI analyzing Solana meme tokens...</p>
       </div>
     );
   }
 
-  if (tokens.length === 0) {
+  if (tokens.length === 0 && viewMode !== 'polymarket') {
     return (
       <div className="loading">
-        <p>⚠️ No Solana tokens found. Check console for errors.</p>
+        <p><i className="fas fa-exclamation-triangle"></i> No Solana tokens found. Check console for errors.</p>
         <button onClick={loadData} className="refresh" style={{marginTop: '20px', padding: '10px 20px'}}>
-          🔄 Retry
+          <i className="fas fa-sync-alt"></i> Retry
         </button>
       </div>
     );
@@ -181,31 +225,45 @@ const Dashboard = ({ isMobile, connected, publicKey }) => {
   return (
     <div className="dashboard">
       <div className="main-content">
-        <TrendingBar tokens={tokens} />
+        {viewMode !== 'polymarket' && <TrendingBar tokens={tokens} />}
+        
         <div className="controls">
           <div className="view-tabs">
             <button className={viewMode === 'leaderboard' ? 'active' : ''} onClick={() => setViewMode('leaderboard')}>
-              🏆 Leaderboard
+              <i className="fas fa-trophy"></i> Leaderboard
             </button>
             <button className={viewMode === 'bubble' ? 'active' : ''} onClick={() => setViewMode('bubble')}>
-              🫧 Bubble
+              <i className="fas fa-circle"></i> Bubble
             </button>
             <button className={viewMode === 'treemap' ? 'active' : ''} onClick={() => setViewMode('treemap')}>
-              🗺️ TreeMap
+              <i className="fas fa-project-diagram"></i> TreeMap
+            </button>
+            <button className={viewMode === 'polymarket' ? 'active' : ''} onClick={() => setViewMode('polymarket')}>
+              <i className="fas fa-chart-line"></i> Polymarket
             </button>
           </div>
-          <button onClick={loadData} className="refresh">🔄 Refresh</button>
+          {viewMode !== 'polymarket' && (
+            <button onClick={loadData} className="refresh">
+              <i className="fas fa-sync-alt"></i> Refresh
+            </button>
+          )}
         </div>
 
         {viewMode === 'leaderboard' && <LeaderboardView tokens={tokens} onVote={handleVote} onBoost={handleBoost} canVote={connected && !!user && !!publicKey} userVotes={userVotes} isMobile={isMobile} onItemClick={handleItemClick} />}
         {viewMode === 'bubble' && <BubbleView tokens={tokens} onVote={handleVote} onBoost={handleBoost} canVote={connected && !!user && !!publicKey} userVotes={userVotes} isMobile={isMobile} onItemClick={handleItemClick} />}
         {viewMode === 'treemap' && <TreeMapView tokens={tokens} onVote={handleVote} onBoost={handleBoost} canVote={connected && !!user && !!publicKey} userVotes={userVotes} isMobile={isMobile} onItemClick={handleItemClick} />}
+        {viewMode === 'polymarket' && <PolymarketView isMobile={isMobile} />}
       </div>
+      
       <div className="sidebar">
         <div className="ai-indicator">
           <div className="ai-pulse"></div>
-          <span>🤖 AI POWERED</span>
+          <span><i className="fas fa-robot"></i> AI POWERED</span>
         </div>
+        
+        {/* Add Polymarket Widget */}
+        <PolymarketWidget onMarketClick={handleMarketClick} />
+        
         <NewsSection />
       </div>
 

@@ -21,8 +21,17 @@ const AppContent = () => {
         <div className="ca-header">CA: SOON</div>
         <div className="nav-section">
           <div className="logo">
-            <h1>🚀 AIMI</h1>
-            <span>AI Meme Index</span>
+            <div className="logo-item">
+              <img src="logo-square.jpg" alt="Polymi Logo"
+                style={{ width: '50px', height: '50px', borderRadius: '25px' }}
+              />
+            </div>
+            <div className="logo-item">
+
+              <h1> POLYMI</h1>
+              <span>POLY Meme Index</span>
+            </div>
+
           </div>
           <WalletMultiButton />
         </div>
