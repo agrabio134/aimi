@@ -1115,8 +1115,12 @@ header {
   
   .nav-right a {
   margin-right: 8px;
+  margin-top: 6px;
   font-size: 1.2em;
 }
+  .logo .logo-text{
+    margin-top: 6px;
+  }
 
 }
 

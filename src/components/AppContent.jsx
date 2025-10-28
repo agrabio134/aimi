@@ -44,7 +44,7 @@ const AppContent = () => {
                 style={{ width: '50px', height: '50px', borderRadius: '25px' }}
               />
             </div>
-            <div className="logo-item">
+            <div className="logo-item logo-text">
 
               <h1> POLYMI</h1>
               <span>POLY Meme Index</span>
