@@ -21,7 +21,7 @@ const AppContent = () => {
   }, []);
   const copyCa = () => {
     return () => {
-      navigator.clipboard.writeText('SOON');
+      navigator.clipboard.writeText('HygZx5u3aaXg38grfa39Y59NSGFQXSMCUyAYWoZfpump');
       Swal.fire({
         title: 'Contract Address Copied!',
         text: 'The contract address has been copied to your clipboard.',
@@ -35,7 +35,7 @@ const AppContent = () => {
   return (
     <div className="app">
       <header>
-        <div className="ca-header" onClick={copyCa()}>CA: SOON</div>
+        <div className="ca-header" onClick={copyCa()}>CA: HygZx5u3aaXg38grfa39Y59NSGFQXSMCUyAYWoZfpump</div>
 
         <div className="nav-section">
           <div className="logo">
