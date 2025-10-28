@@ -1,7 +1,7 @@
 // src/components/LeaderboardView.jsx
 import React, { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSearch, faVoteYea, faRocket, faTrophy } from '@fortawesome/free-solid-svg-icons';
+import { faSearch, faVoteYea, faRocket, faTrophy, faSync  } from '@fortawesome/free-solid-svg-icons';
 import { searchTokens } from '../utils/api';
 
 const LeaderboardView = ({ tokens, onVote, onBoost, canVote, userVotes, isMobile, onItemClick }) => {
